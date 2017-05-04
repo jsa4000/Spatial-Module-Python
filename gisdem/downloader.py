@@ -1,17 +1,20 @@
 import requests
 import shutil
 
-def download(url, opath = None):
+def download(url, outname = None, outpath = None):
     """
         Download a file from the current URL by doing an http request via GET.
         Returns the name of the file downloaded if succesful.
         None is there was an error in the conexion or donwloading the file.
     """
-    # get the name of the file
-    if opath is None:
+# Get the name of the file
+    if outname is None:
         local_filename = url.split('/')[-1]
     else:
-        local_filename = opath + "/" + url.split('/')[-1]
+        local_filename = outname
+    # get full path of the file
+    if outpath is not None:
+        local_filename = outpath + "/" + local_filename
     # Do the GET request to the url passed by commands
     #   request.request("GET",url)
     r = requests.get(url, stream=True)
@@ -23,6 +26,6 @@ def download(url, opath = None):
             shutil.copyfileobj(r.raw, f)
         # Finall return the file name is succesful
         return local_filename
-    else:
-        return None
+    # Anyways return Null        
+    return None
     
