@@ -1,0 +1,9 @@
+// Place your settings in this file to overwrite default and user settings.
+{
+    // Since I'm executing python inside a virtual environment cmd
+    // thre is no need to set this variable.
+
+    // However the full path with the environemnt is the following.
+    // C:/Users/javier.santos/AppData/Local/Continuum/Python-5.5.3/envs/python_env_gisdem
+    //"python.pythonPath": "python",
+}
