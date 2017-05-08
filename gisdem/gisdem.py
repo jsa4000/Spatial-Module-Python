@@ -21,3 +21,21 @@ if  __name__ == "__main__":
     file = tstDownload(url, path)
     print("File donwloaded: " + file)
     
+
+    #http://www.opentopography.org/developers#GMRT
+    # Open Topology -> to download Elevation Maps in SRTMGL3, SRTMGL3, etc..
+
+    #Base URL
+    #http://opentopo.sdsc.edu/otr/
+
+    #Required Parameters
+    #You must POST the following parameters:
+
+    #For GET capabilities
+    # http://opentopo.sdsc.edu/geoportal/csw/discovery?Request=GetCapabilities&Service=CSW&Version=2.0.2
+
+    #demtype 	The global raster dataset - SRTM GL3 (90m) is 'SRTMGL3', SRTM GL1 (30m) is 'SRTMGL1', SRTM GL1 (Ellipsoidal) is 'SRTMGL1_E', and ALOS World 3D 30m is 'AW3D30'
+    #west, south, east, north 	WGS 84 bounding box coordinates
+    #outputFormat 	outputFormat Output Format (optional) - GTiff for GeoTiff, AAIGrid for Arc ASCII Grid, HFA for Erdas Imagine (.IMG). Defaults to GTiff if parameter is not provided
+
+    # Open Street map
