@@ -32,13 +32,16 @@ It is important to note that the Python API does not support any kind of visual 
     ```
     This will result in an error message due to the fact that Google still needs to verify your account with Earth Engine and it currently does not have the proper credentials. 
     Therefore, run:
-    ```
-    earthengine authenticate
-    ```
+         ```
+         earthengine authenticate
+         ```
     This will open your default web-browser (ensure that you're currently logged into your Google account) and provide you with a unique key to verify your account. 
     Copy and paste the key into the terminal when prompted for the key.
+    
+    KEY : 4/bdZVz3MkMiatYAAkccUpx1RrkK2ewnrbM5YEdF8-1zk
+    
     NOTE: You will have to create a log in account to use in Google Earth Engine in order to access.
-
+ 
 7. Run python so that you're utilizing the Python Command Line Interface (CLI) and run the following commands to ensure that the Earth Engine Python API is properly installed
     ```
     python
@@ -48,6 +51,7 @@ It is important to note that the Python API does not support any kind of visual 
     >>> print(image.getInfo())
     ```
     If you see metadata printed to the terminal and there are no errors then the Python API for Earth Engine is properly installed and you are ready to use it. If you were stuck or ran into errors not outline in this tutorial, a more in-depth tutorial can be found [here](https://developers.google.com/earth-engine/python_install)
+
     
 ## Examples
 **Downloading Data** - Running below script will print the path used to download some elevation data from the NASA Shuttle Radar Topography Mission:

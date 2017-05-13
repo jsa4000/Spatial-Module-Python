@@ -1,3 +1,4 @@
+import os
 import shutil
 import requests
 from utils import ProgressBar
@@ -9,11 +10,11 @@ def get_filename_from_header(header):
         return header['Content-Disposition'].split('filename=')[-1].strip('"')
     return None
 
-def download(url, filepath=None, filename=None, rawdata=False, chunk_size=512):
+def download(url, folder=None, filename=None, overwrite=False, rawdata=False, chunk_size=512):
     """
         Download a file from the current URL by doing an http request via GET.
         Returns the name of the file downloaded if succesful.
-        None is there was an error in the conexion or donwloading the file.
+        Returns None is there was an error in the conexion or while downloading the file.
 
         HTTP Headers:
             {
@@ -64,38 +65,40 @@ def download(url, filepath=None, filename=None, rawdata=False, chunk_size=512):
             filesize = int(response.headers['Content-Length'])
         else:
             filesize = len(response.content)
-
         # Check first if a name is given in the condition
-        if filename is not None:
-            local_filename = filename
-        else:
+        if filename is None:
             # Try to get the name of the file directly from the request
-            local_filename = get_filename_from_header(response.headers)
+            filename = get_filename_from_header(response.headers)
             # If not name is given in the request then try to inference from the url
-            if local_filename is None:
+            if filename is None:
                 # Get the name of the file using the URL
-                local_filename = url.split('/')[-1].split("#")[0].split("?")[0]
-
+                filename = url.split('/')[-1].split("#")[0].split("?")[0]
         # get full path of the file
-        if filepath is not None:
-            local_filename = filepath + "/" + local_filename
+        if folder is not None:
+            filepath = folder + "/" + filename
+        # Check Whether the file already exist
+        if (not overwrite and os.path.exists(filepath)):
+            # Check the file size of the file if was downloaded succesfull
+            if filesize == os.path.getsize(filepath):
+                # If both are equal the return the file path since seems it's ok
+                return filepath
         # Open the file in write mode
-        with open(local_filename, 'wb') as file:
+        with open(filepath, 'wb') as file:
             # Check if the reponse must be stored in raw data or using the decoding
             # type inside content-type
             if rawdata:
                 # Copy directly the content of the buffer in the response to the file
                 shutil.copyfileobj(response.raw, file)
             else:
-                with ProgressBar(filesize) as pbar:
+                with ProgressBar("Downloading File: " + filename,filesize) as pbar:
                     # Get the decoded data using the headers content type.
-                    # Lets requests/urllib do the conversion ('Content-Encoding')
+                    # Lets requests/urllib do the conversion/decode stuff ('Content-Encoding')
                     for chunk in response.iter_content(chunk_size=chunk_size):
                         if chunk:  # filter out keep-alive new chunks
                             file.write(chunk)
                             pbar.update(chunk_size)
         # Finall return the file name is succesful
-        return local_filename
+        return filepath
     # Anyways return None
     return None
     

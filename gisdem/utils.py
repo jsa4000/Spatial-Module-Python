@@ -11,7 +11,8 @@ class ProgressBar:
                     pbar.update(1)
                     time.sleep(1)
     """
-    def __init__(self, total, start=0, units="%", size=30):
+    def __init__(self, title, total, start=0, units="%", size=30):
+        self.title = title
         self.total = total
         self.units = units
         self.current = start
@@ -21,13 +22,13 @@ class ProgressBar:
         return self
     def __exit__(self, exc_type, exc_val, exc_tb):
         percent =  100
-        print(self.get_progress_bar(1) + " 100.0"+ self.units + " DONE!         ")
+        print( self.title + " " + self.get_progress_bar(1) + " 100.0"+ self.units + " DONE!         ")
     def get_progress_bar(self, percent):
         return "[" + ("#" * int(percent * self.size)) + (" " * (self.size -  int(percent * self.size))) + "]"
     def update(self, amount):
         self.current += amount
         percent =  self.current / self.total
-        print(self.get_progress_bar(percent) + " " +"{0:.1f}".format(round(percent * 100,2)) + self.units, end="\r")
+        print( self.title + " " + self.get_progress_bar(percent) + " " +"{0:.1f}".format(round(percent * 100,2)) + self.units, end="\r")
      
 def timeit(method, showparams = False):
     """
