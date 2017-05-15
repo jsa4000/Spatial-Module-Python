@@ -287,17 +287,17 @@ class Geometry:
     """
 
     # Declare the subindex that will be used for multiple (vector) attribites
-    index_cols = ["x","y","z","w"]
+    index = ["x","y","z","w"]
 
-    def __init__(self, name=None):
+    def __init__(self, name = None):
         # Initialize all the variables
         self.name = name
-        # Attributes dictionary to store the columns for each component
-        self._pointAttribCols = {}
-        self._primAttribCols = {}
-        # Point Attributes and elements Data frames
+        # Attributes group
+        self.points = {}
+        self.primitives = {}
+        # Attributes and elements Data frames
         self._dfpoints = pd.DataFrame()
-        self._dfPrims = pd.DataFrame()
+        self._dfprimitives = pd.DataFrame()
         # Vertex Array Object for all the Attributtes, elements, etc.
         self._VAO = None
         # Vertex Arrays Buffers for all the Attributes
@@ -324,65 +324,74 @@ class Geometry:
         pass
 
     def addPrimitives(self, indices):
-        # In OpenGL a prim (face) will be defined by using 3 vertices (triangles)
+        # In OpenGL a face will be defined by using 3 vertices (triangles)
         indexes = ["id0","id1","id2"]
         # Reshape the current array into 3 columns
         indices = np.reshape(indices, (-1, len(indexes)))
-        self._dfPrims = pd.DataFrame(indices,columns=indexes)
+        self._dfprimitives = pd.DataFrame(indices,columns=indexes)
         # Group the current Primitive attribute
-        self._primAttribCols["Idx"] = indexes
+        self.primitives["Idx"] = self._dfprimitives.groupby(indexes)
 
-    def _getNewAttribute(self, df, name, size=3, values=None, default=None, dtype=np.float32):
+    def addPointAttribute(self, name, size=3, values=None, default=None, dtype = np.float32):
         # Check any values or default values has been provided
         if isEmpty(values) and isEmpty(default):
-            if df.empty:
+            if self._dfpoints.empty:
                 # If nothing to add exit the function
-                return None
+                return
             else:
                 # Create a default value (float)
                 default = np.zeros((size), dtype=dtype)
+             
         # Check the index value depending on the size
         if size > 1:
-            columns = [name + Geometry.index_cols[i] for i in range(size)]
+            columns = [name + Geometry.index[i] for i in range(size)]
         else:
             columns = [name]
+
         # Check if values has been already defined
-        if (isEmpty(values) and not df.empty):
+        if (isEmpty(values) and not self._dfpoints.empty):
             # create an array with the same number of rows as the current
-            values = np.tile(default,(len(df.index)))
+            values = np.tile(default,(len(self._dfpoints.index)))
+
         # Reshape the values
         values = np.reshape(values, (-1, size))
-        # Check if the DataFrame is empty
-        if df.empty:
+
+        #Create the indexes
+        index = np.arange(len(self._dfpoints.index),dtype=np.int32)
+
+        if self._dfpoints.empty:
             # Add the current data into the attributes frame
-            df = pd.DataFrame(values, columns=columns)
+            self._dfpoints = pd.DataFrame(values, index=index, columns=columns)
         else:
-            # Add the current data into the attributes frame
-            dfvalues = pd.DataFrame(values, columns=columns)
+             # Add the current data into the attributes frame
+            dfvalues = pd.DataFrame(values, index=index,columns=columns)
             # Append both dataframes
-            df = pd.merge(df, dfvalues, how='inner', left_index=True, right_index=True)
-        # Set the columns into the the current Point attribute
-        return (df, columns)
+            self._dfpoints = pd.merge(self._dfpoints, dfvalues, how='inner', left_index=True, right_index=True)
+         # Group the current Point attribute
+        self.points[name] = self._dfpoints.groupby(columns, sort=False)
+        # Print the result
+        print(self.points[name].head())
 
-    def getPointAttrib(self, name):
-        return self._dfpoints[self._pointAttribCols[name]]
 
-    def addPointAttrib(self, name, size=3, values=None, default=None, dtype=np.float32):
-        # Get the new attribute and dataframe
-        result = self._getNewAttribute(self._dfpoints,name,size,values,default,dtype)
-        if not isEmpty(result):
-            # Set the returned dataframe with the new attribute
-            self._dfpoints = result[0]
-            # Set the columns into the the current Point attribute
-            self._pointAttribCols[name] = result[1]
-
-    def addPoints(self, values, size=3):
-        #Add point Attributes Position
-        self.addPointAttrib("P",size,values)
+    def addPoints(self, vertices, size=3):
+        # Get the number of dimension for the points
+        indexes = ["P" + Geometry.index[i] for i in range(size)]
+        vertices = np.reshape(vertices, (-1, size))
+        # Add the current data into the attributes frame
+        self._dfpoints = pd.DataFrame(vertices, columns=indexes)
+        # Group the current Point attribute
+        self.points["P"] = self._dfpoints.groupby(indexes)
 
     def addNormals(self, normals, size=3):
-          #Add point Attributes Normals
-        self.addPointAttrib("N",size,normals)
+        # Get the number of dimension for the points
+        indexes = ["N" + Geometry.index[i] for i in range(size)]
+        normals = np.reshape(normals, (-1, size))
+        # Add the current data into the attributes frame
+        dfnormals = pd.DataFrame(normals, columns=indexes)
+        # Append both dataframes
+        self._dfpoints = pd.merge(self._dfpoints, dfnormals, how='inner', left_index=True, right_index=True)
+        # Group the current Point attribute
+        self.points["N"] = self._dfpoints.groupby(indexes)
 
     def render(self):
         pass
@@ -394,17 +403,18 @@ if __name__ == "__main__":
         # Create the geometry
         cube = cube3D()
         myCube = Geometry("Cube#1")
+        # myCube.addPoints(cube[0], 4)
+        # myCube.addPrimitives(cube[1])
+        # myCube.addNormals(cube[0], 4)
+
         myCube.addPoints(cube[0], 4)
-        myCube.addPrimitives(cube[1])
-        myCube.addNormals(cube[0], 4)
+        myCube.addPointAttribute("N", size=4, values=cube[0])
+        myCube.addPointAttribute("pscale", size=1, default=0.0)
 
-        myCube.addPointAttrib("Up", size=4, values=cube[0])
-        myCube.addPointAttrib("pscale", size=1, default=0.4)
-
-        print(myCube.getPointAttrib("P").head())
+        print(myCube.points["P"].head())
         #print(myCube.primitives["Idx"].head())
-        print(myCube.getPointAttrib("N").head())
-        print(myCube.getPointAttrib("pscale").head())
+        print(myCube.points["N"].head())
+        print(myCube.points["pscale"].head())
 
         while not display.isClosed:     
             for event in pygame.event.get():
