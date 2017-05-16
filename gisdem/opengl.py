@@ -1,9 +1,12 @@
 
-import numpy as np
 import OpenGL.GL as GL
 import OpenGL.GL.shaders
+import ctypes
 import pygame
+import os
+import numpy as np
 import pandas as pd
+
 
 # Great useful resource to learn OpenGL and all the concepts needed for understanding
 # ligths, materials, shaders, transformations, etc..
@@ -99,15 +102,40 @@ def cube3D(origin = [0.0,0.0,0.0], transform = None):
     # It will return a tuple with the vertices and indices.
     return (nvertices,nindices)
 
+def empty(value):
+    """
+        Ths function will return is some list or variable is empty.
+        For list, dict or any other collection will check there is 
+        more that one element. For other variables the condition
+        will check if the object is None.
+    """    
+    if isinstance(value, (list, dict, np.ndarray, tuple, set)):
+        if len(value) > 0:
+            return False
+    else:
+        if value is not None:
+            return False
+    return True
 
-def isEmpty(value):
-        if isinstance(value, (list, dict, np.ndarray, tuple, set)):
-            if len(value) > 0:
-                return False
-        else:
-            if value is not None:
-                return False
+def isfile(filename):
+    """
+        Check if file exists
+    """
+    if os.path.isfile(filename):
         return True
+    return False
+
+def readfile(filename):
+    """
+        Read the current file line by line and return a 
+        srting variable with all the content and
+        special charcters like neW_line
+    """
+    result = None
+    if isfile(filename):
+        with open(filename,'r') as file:
+            result = file.read()
+    return result
 
 """
  For my OpenGL I will need the following classes or objects.
@@ -219,7 +247,7 @@ class Display:
     # Default Background Color
     defaulBGColor = [0.0, 0.0, 0.0, 1.0]
 
-    def __init__(self, title, width=800, height=600, bpp=32, displaymode = DisplayMode.resizable):
+    def __init__(self, title, width=800, height=600, bpp=16, displaymode = DisplayMode.resizable):
         # Initialize all the variables
         self.title = title
         self.width = width
@@ -259,6 +287,10 @@ class Display:
             screen = pygame.display.set_mode((self.width, self.height), 
                                         Display.defaultmode|self.displaymode,
                                         self.bpp)
+            # Enable Depth test to avoid overlaped areas
+            GL.glEnable(GL.GL_DEPTH_TEST)
+            # Clear the image
+            self.clear()
             # Set isclosed to false
             self.isClosed = False
         except:
@@ -280,6 +312,27 @@ class Display:
         if self.isClosed:
             self._dispose()
 
+
+class DrawMode:
+    triangles    = GL.GL_TRIANGLES	
+    points       = GL.GL_POINTS
+    lines        = GL.GL_LINES 
+    quads        = GL.GL_QUADS
+    tfan         = GL.GL_TRIANGLE_FAN
+    lstrip       = GL.GL_LINE_STRIP
+    tstrip       = GL.GL_TRIANGLE_STRIP
+
+class UsageMode:
+    stream_draw  = GL.GL_STREAM_DRAW
+    stream_read  = GL.GL_STREAM_READ
+    stream_copy  = GL.GL_STREAM_COPY
+    static_draw  = GL.GL_STATIC_DRAW
+    static_read  = GL.GL_STATIC_READ
+    static_copy  = GL.GL_STATIC_COPY
+    dynamic_draw = GL.GL_DYNAMIC_DRAW
+    dynamic_read = GL.GL_DYNAMIC_READ
+    dynamic_copy = GL.GL_DYNAMIC_COPY 
+
 class Geometry:
     """
         This element will create and store all the elements needed
@@ -289,9 +342,11 @@ class Geometry:
     # Declare the subindex that will be used for multiple (vector) attribites
     index_cols = ["x","y","z","w"]
 
-    def __init__(self, name=None):
+    def __init__(self, name=None, mode=DrawMode.triangles, usage=UsageMode.static_draw):
         # Initialize all the variables
         self.name = name
+        self.mode = mode
+        self.usage = usage
         # Attributes dictionary to store the columns for each component
         self._pointAttribCols = {}
         self._primAttribCols = {}
@@ -301,7 +356,7 @@ class Geometry:
         # Vertex Array Object for all the Attributtes, elements, etc.
         self._VAO = None
         # Vertex Arrays Buffers for all the Attributes
-        self._VAB = []
+        self._VAB = {}
         # Vertex Element Buffers for all the Attrbiutes
         self._VEB = None
 
@@ -317,24 +372,38 @@ class Geometry:
         self._dispose()
 
     def _dispose(self):
-        # Dispose all the object and vmemry allocated
+        # Dispose all the object and memory allocated
         pass
+
+    def _copy_to_buffer(self, dfPoints, dfPrims=None):
+        # Create a new VAO (Vertex Array Object). Only (1) VAO.
+        # Note. Using bpp > 16bits doesn't work. This depend on the Graphic Card.
+        self._VAO = GL.glGenVertexArrays(1)
+        # Every time we want to use VAO we just have to bind it
+        GL.glBindVertexArray(self._VAO)
+        # Get the current vertices
+        vertices = dfPoints[self._pointAttribCols["P"]].values
+        # Create the vertex array buffer and send the positions into the GPU buffers
+        self._VAB["P"] = GL.glGenBuffers(1)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._VAB)
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, len(vertices), vertices , self.usage)
+        
+        # Unbind VAO from OpenGL. Set to None = 0
+        GL.glBindVertexArray(0)
+        # Remove and unbind buffers
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
 
     def _initialize(self):
         pass
 
-    def addPrimitives(self, indices):
-        # In OpenGL a prim (face) will be defined by using 3 vertices (triangles)
-        indexes = ["id0","id1","id2"]
-        # Reshape the current array into 3 columns
-        indices = np.reshape(indices, (-1, len(indexes)))
-        self._dfPrims = pd.DataFrame(indices,columns=indexes)
-        # Group the current Primitive attribute
-        self._primAttribCols["Idx"] = indexes
-
-    def _getNewAttribute(self, df, name, size=3, values=None, default=None, dtype=np.float32):
+    def update(self):
+        # Depenging on the method to update the vertices using GPU or 
+        # inmediate OpenGL the update will be different.
+        self._copy_to_buffer(self._dfpoints)
+    
+    def _createAttribute(self, df, name, size=3, values=None, default=None, dtype=np.float32):
         # Check any values or default values has been provided
-        if isEmpty(values) and isEmpty(default):
+        if empty(values) and empty(default):
             if df.empty:
                 # If nothing to add exit the function
                 return None
@@ -347,7 +416,7 @@ class Geometry:
         else:
             columns = [name]
         # Check if values has been already defined
-        if (isEmpty(values) and not df.empty):
+        if (empty(values) and not df.empty):
             # create an array with the same number of rows as the current
             values = np.tile(default,(len(df.index)))
         # Reshape the values
@@ -364,12 +433,34 @@ class Geometry:
         # Set the columns into the the current Point attribute
         return (df, columns)
 
+    def getPrimsAttrib(self, name):
+            return self._dfPrims[self._primAttribCols[name]]
+
+    def delPrimsAttrib(self, name):
+        self._dfPrims.drop(self._primAttribCols[name], axis=1, inplace=True)
+
+    def addPrimsAttrib(self, name, size=3, values=None, default=None, dtype=np.float32):
+        # Get the new attribute and dataframe
+        result = self._createAttribute(self._dfPrims,name,size,values,default,dtype)
+        if not empty(result):
+            # Set the returned dataframe with the new attribute
+            self._dfPrims = result[0]
+            # Set the columns into the the current Point attribute
+            self._primAttribCols[name] = result[1]
+
+    def addIndices(self, values, size=3,):
+         #Add prims Attributes Elements
+        self.addPrimsAttrib("Id",size,values)
+   
     def getPointAttrib(self, name):
         return self._dfpoints[self._pointAttribCols[name]]
 
+    def delPointAttrib(self, name):
+        self._dfpoints.drop(self._pointAttribCols[name], axis=1, inplace=True)
+
     def addPointAttrib(self, name, size=3, values=None, default=None, dtype=np.float32):
         # Get the new attribute and dataframe
-        result = self._getNewAttribute(self._dfpoints,name,size,values,default,dtype)
+        result = self._createAttribute(self._dfpoints,name,size,values,default,dtype)
         if not isEmpty(result):
             # Set the returned dataframe with the new attribute
             self._dfpoints = result[0]
@@ -385,26 +476,175 @@ class Geometry:
         self.addPointAttrib("N",size,normals)
 
     def render(self):
-        pass
+        # Bind the created Vertex Array Object
+        GL.glBindVertexArray(self._VAO)
+        # Draw the current geoemtry. Check if indices have been added
+        if "id" in self._primAttribCols:
+            GL.glDrawElements(self.mode, len(self._dfpoints.index), 
+                              GL.GL_UNSIGNED_INT, self.getPrimstAttrib("Id").values)
+        else:
+            GL.glDrawArrays(self.mode, 0, len(self._dfpoints.index))
+        # Unbind VAO from GPU
+        GL.glBindVertexArray( 0 )
   
+ShaderType = {
+    "VERTEX_SHADER"     : { "id":"vs", "type":GL.GL_VERTEX_SHADER   }, 
+    "FRAGMENT_SHADER"   : { "id":"fs", "type":GL.GL_FRAGMENT_SHADER },
+    "GEOMETRY_SHADER"   : { "id":"gs", "type":GL.GL_GEOMETRY_SHADER }
+    }
+
+class Shader:
+    """
+        This element will create and store all the elements needed
+        to create a shader.
+    """
+    
+    def __init__(self, name=None, filepath="./"):
+        # Initialize all the variables
+        self.name = name
+        self.filepath = filepath
+        # Initial variables
+        self._shaders = {}
+        self._attributes = {}
+        self._uniforms = {}
+        self._program = None
+        # Initiali<e variables and Window
+        self._initialize()
+
+    def __enter__(self):
+        # Enter will always return the object itself. Use with With expressons
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # Clean all the memery stored
+        self._dispose()
+
+    def _dispose(self):
+        # Dispose all the object and memory allocated
+        for key,value in self._shaders.items():
+            if self._program:
+                GL.glDetachShader(self._program, value)
+            GL.glDeleleShader(value)
+        # DeleteShader Program
+        if self._program:
+            GL.glDeleteProgram(self._program)
+
+    def _initialize(self):
+        # Dispose previous elemens created
+        self._dispose()
+        # Create the variables needed for the shader program
+        self._shaders = {}
+        self._attributes = {}
+        self._uniforms = {}
+        self._program = GL.glCreateProgram()
+        # Read all shader files and link into the progrma
+        for key,value in ShaderType.items():
+            filename = self.filepath + "/" + self.name + "." + value["id"]
+            shader = self._load_shader(self._program, filename, value["type"])
+            # Check the current shader has been loaded correctly
+            if shader:
+                self._shaders[key] = shader
+        # Link the current shader program
+        GL.glLinkProgram(self._program)
+        # Check for link errors                
+        if self._check_shader_error(self._program, GL.GL_LINK_STATUS,True):    # Check if compilation was successful
+            return
+        # Validate Program
+        GL.glValidateProgram(self._program)
+         # Check for link errors                
+        if self._check_shader_error(self._program, GL.GL_VALIDATE_STATUS,True):    # Check if compilation was successful
+            return
+
+    def _check_shader_error(self,shader,status,isProgram=False):
+        if isProgram:
+            # Check for errors in Programs               
+            if GL.glGetProgramiv(shader,status) != GL.GL_TRUE:
+                print('Program load failed: {}'.format(GL.glGetProgramInfoLog(shader)))
+                return True
+        else:
+            # Check for errors in Shaders                
+            if GL.glGetShaderiv(shader,status) != GL.GL_TRUE:
+                print('Shader load failed: {}'.format(GL.glGetShaderInfoLog(shader)))
+                return True
+        return False    
+
+    def _load_shader(self, program, filename, shader_type):
+        # Check if the file exists
+        if isfile(filename):
+            #Load current shader code-source from file
+            shader_source = readfile(filename)
+            # Create curent shader
+            current_shader = GL.glCreateShader(shader_type)
+            # Set the source for the current sshader
+            GL.glShaderSource(current_shader, shader_source) 
+            # Compile current shadershader
+            GL.glCompileShader(current_shader)
+            # Check for compiler errors                
+            if self._check_shader_error(current_shader, GL.GL_COMPILE_STATUS):    # Check if compilation was successful
+                return None
+            # Finally attach the current shader to the program
+            GL.glAttachShader(program, current_shader)
+            # Return the current shader
+            return current_shader
+
+    def load(self, filename):
+        #Set the current file and initialize
+        self._filename = filename
+        self._initialize()
+
+    def use(self,use=True):
+        if self._program:
+            # Tell Open GL to use/not-use the current progrma
+            if use:
+                GL.glUseProgram(self._program)
+            else:
+                GL.glUseProgram(0)
+
+    def bind(self,name,size=3,gltype=GL.GL_FLOAT, bind=True):
+        if self._program is None:
+            return False
+        if bind:
+            # Get the location of the 'name' in parameter of our shader and bind it.
+            attribute = GL.glGetAttribLocation(self._program, name)
+            GL.glEnableVertexAttribArray(attribute)
+            # Describe the position data layout in the buffer
+            GL.glVertexAttribPointer(attribute,size,gltype,False, 0, ctypes.c_void_p(0))
+            # Insert current attribite binding
+            self._attributes[name] = attribute
+        else:
+            # Unbind Attribute
+            GL.glDisableVertexAttribArray(self._attributes[name])
+   
+    def update(self):
+        pass
+
 # Testing pourposes main function
 if __name__ == "__main__":
     with  Display("Main Window", 800,600) as display:
+
+        # shader = Shader("default_shader", "./shaders")
+        # shader.use()
 
         # Create the geometry
         cube = cube3D()
         myCube = Geometry("Cube#1")
         myCube.addPoints(cube[0], 4)
-        myCube.addPrimitives(cube[1])
+        myCube.addIndices(cube[1])
         myCube.addNormals(cube[0], 4)
 
         myCube.addPointAttrib("Up", size=4, values=cube[0])
-        myCube.addPointAttrib("pscale", size=1, default=0.4)
+        myCube.addPointAttrib("pscale", size=3, default=[0.4,0.4,0.4])
 
+        myCube.update()
         print(myCube.getPointAttrib("P").head())
         #print(myCube.primitives["Idx"].head())
         print(myCube.getPointAttrib("N").head())
-        print(myCube.getPointAttrib("pscale").head())
+        print(myCube.getPointAttrib("pscale").pscalez.head())
+        print(myCube.getPointAttrib("pscale").values)
+        myCube.delPointAttrib("pscale")
+
+        print(myCube._dfpoints.head())
+
 
         while not display.isClosed:     
             for event in pygame.event.get():
