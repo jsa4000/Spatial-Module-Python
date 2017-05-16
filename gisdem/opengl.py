@@ -55,15 +55,15 @@ def cube3D(origin = [0.0,0.0,0.0], transform = None):
     #
     vertices = [
         # First we represent the vertices on the bottom y = -1
-        1.0, -1.0, -1.0, 1.0, # right, bottom, front vertex. (0)
-        -1.0, -1.0, -1.0, 1.0, # left, bottom, front vertex. (1)
-        -1.0, -1.0, 1.0, 1.0, # right, bottom, back vertex. (2)
-        1.0, -1.0, 1.0, 1.0, # left, bottom, back vertex. (3)
+        1.0, -1.0, -1.0, # right, bottom, front vertex. (0)
+        -1.0, -1.0, -1.0, # left, bottom, front vertex. (1)
+        -1.0, -1.0, 1.0, # right, bottom, back vertex. (2)
+        1.0, -1.0, 1.0, # left, bottom, back vertex. (3)
         # The same vertex positions but on the top of the cube Y= 1
-        1.0, 1.0, -1.0, 1.0, # right, bottom, front vertex. (0)
-        -1.0, 1.0, -1.0, 1.0, # left, bottom, front vertex. (1)
-        -1.0, 1.0, 1.0, 1.0, # right, bottom, back vertex. (2)
-        1.0, 1.0, 1.0, 1.0 # left, bottom, ack vertex. (3)
+        1.0, 1.0, -1.0, # right, bottom, front vertex. (0)
+        -1.0, 1.0, -1.0, # left, bottom, front vertex. (1)
+        -1.0, 1.0, 1.0, # right, bottom, back vertex. (2)
+        1.0, 1.0, 1.0 # left, bottom, ack vertex. (3)
     ]
     #Conver the array into a numpy array (copy vs reference)
     nvertices = np.asarray(vertices, dtype=np.float32)
@@ -127,9 +127,9 @@ def isfile(filename):
 
 def readfile(filename):
     """
-        Read the current file line by line and return a 
-        srting variable with all the content and
-        special charcters like neW_line
+        Read the current file entirely and return a 
+        string variable with all the content with
+        special characters like new_line, etc..
     """
     result = None
     if isfile(filename):
@@ -342,10 +342,11 @@ class Geometry:
     # Declare the subindex that will be used for multiple (vector) attribites
     index_cols = ["x","y","z","w"]
 
-    def __init__(self, name=None, mode=DrawMode.triangles, usage=UsageMode.static_draw):
+    def __init__(self, name=None, shader=None, mode=DrawMode.triangles, usage=UsageMode.static_draw):
         # Initialize all the variables
         self.name = name
         self.mode = mode
+        self.shader = shader
         self.usage = usage
         # Attributes dictionary to store the columns for each component
         self._pointAttribCols = {}
@@ -373,7 +374,7 @@ class Geometry:
 
     def _dispose(self):
         # Dispose all the object and memory allocated
-        pass
+        GL.glDeleteVertexArrays(1,self._VAO)
 
     def _copy_to_buffer(self, dfPoints, dfPrims=None):
         # Create a new VAO (Vertex Array Object). Only (1) VAO.
@@ -381,17 +382,24 @@ class Geometry:
         self._VAO = GL.glGenVertexArrays(1)
         # Every time we want to use VAO we just have to bind it
         GL.glBindVertexArray(self._VAO)
-        # Get the current vertices
+        # Get the current vertices (flatten)
         vertices = dfPoints[self._pointAttribCols["P"]].values
         # Create the vertex array buffer and send the positions into the GPU buffers
         self._VAB["P"] = GL.glGenBuffers(1)
-        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._VAB)
-        GL.glBufferData(GL.GL_ARRAY_BUFFER, len(vertices), vertices , self.usage)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._VAB["P"] )
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, vertices.nbytes, vertices.flatten() , self.usage)
         
+        # Bind the shaders attributes for the current geometry
+        if self.shader:
+            # The first attribute OpenGL search for is for 0 or "position"
+            self.shader.bind("position",len(vertices[0]),GL.GL_FLOAT)
+
         # Unbind VAO from OpenGL. Set to None = 0
         GL.glBindVertexArray(0)
         # Remove and unbind buffers
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+        # Unbin shader
+        self.shader.bind("position",bind=False)
 
     def _initialize(self):
         pass
@@ -461,7 +469,7 @@ class Geometry:
     def addPointAttrib(self, name, size=3, values=None, default=None, dtype=np.float32):
         # Get the new attribute and dataframe
         result = self._createAttribute(self._dfpoints,name,size,values,default,dtype)
-        if not isEmpty(result):
+        if not empty(result):
             # Set the returned dataframe with the new attribute
             self._dfpoints = result[0]
             # Set the columns into the the current Point attribute
@@ -476,6 +484,8 @@ class Geometry:
         self.addPointAttrib("N",size,normals)
 
     def render(self):
+        # Use the current Shader configuration
+        self.shader.use()
         # Bind the created Vertex Array Object
         GL.glBindVertexArray(self._VAO)
         # Draw the current geoemtry. Check if indices have been added
@@ -486,6 +496,8 @@ class Geometry:
             GL.glDrawArrays(self.mode, 0, len(self._dfpoints.index))
         # Unbind VAO from GPU
         GL.glBindVertexArray( 0 )
+        # Set no use the current shader configuration
+        self.shader.use(False)
   
 ShaderType = {
     "VERTEX_SHADER"     : { "id":"vs", "type":GL.GL_VERTEX_SHADER   }, 
@@ -622,28 +634,32 @@ class Shader:
 if __name__ == "__main__":
     with  Display("Main Window", 800,600) as display:
 
-        # shader = Shader("default_shader", "./shaders")
+        shader = Shader("default_shader", "./shaders")
         # shader.use()
 
+        vertices = [ 0.6,  0.6, 0.0, 1.0,
+                    -0.6,  0.6, 0.0, 1.0,
+                     0.0, -0.6, 0.0, 1.0]
         # Create the geometry
         cube = cube3D()
-        myCube = Geometry("Cube#1")
-        myCube.addPoints(cube[0], 4)
-        myCube.addIndices(cube[1])
-        myCube.addNormals(cube[0], 4)
-
-        myCube.addPointAttrib("Up", size=4, values=cube[0])
-        myCube.addPointAttrib("pscale", size=3, default=[0.4,0.4,0.4])
-
+        myCube = Geometry("Cube#1",shader)
+        myCube.addPoints(vertices, 4)
         myCube.update()
-        print(myCube.getPointAttrib("P").head())
-        #print(myCube.primitives["Idx"].head())
-        print(myCube.getPointAttrib("N").head())
-        print(myCube.getPointAttrib("pscale").pscalez.head())
-        print(myCube.getPointAttrib("pscale").values)
-        myCube.delPointAttrib("pscale")
+        # myCube.addIndices(cube[1])
+        # myCube.addNormals(cube[0], 4)
 
-        print(myCube._dfpoints.head())
+        # myCube.addPointAttrib("Up", size=4, values=cube[0])
+        # myCube.addPointAttrib("pscale", size=3, default=[0.4,0.4,0.4])
+
+        # myCube.update()
+        # print(myCube.getPointAttrib("P").head())
+        # #print(myCube.primitives["Idx"].head())
+        # print(myCube.getPointAttrib("N").head())
+        # print(myCube.getPointAttrib("pscale").pscalez.head())
+        # print(myCube.getPointAttrib("pscale").values)
+        # myCube.delPointAttrib("pscale")
+
+        # print(myCube._dfpoints.head())
 
 
         while not display.isClosed:     
@@ -654,6 +670,8 @@ if __name__ == "__main__":
                     display.close()
             # Clear the display
             display.clear()
+            # Render the  geometry
+            myCube.render()
             # Update the display
             display.update()
 
