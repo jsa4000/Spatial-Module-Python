@@ -395,7 +395,7 @@ class Geometry:
         self._pointAttribCols = {}
         self._primAttribCols = {}
         # Point Attributes and elements Data frames
-        self._dfPoints = pd.DataFrame()
+        self._dfpoints = pd.DataFrame()
         self._dfPrims = pd.DataFrame()
         # Vertex Array Object for all the Attributtes, elements, etc.
         self._VAO = None
@@ -427,26 +427,22 @@ class Geometry:
     def _create_vertex_buffer_array(self, name, attribute_name = None):
         """
             This function only make sense to do when working with
-            points (vertex) attributes.S
-            The function  will return the bind attribute attached
-            to the shader. This could be stored into a list to 
-            detach later when copy all the buffers and after unbind
-            VAO object.
+            points (vertex) attributes.
         """
         # Check if not attribute name has been mapped for the bidinng
         if attribute_name is None:
             attribute_name = name
         # Get the current vertices (flatten is not needed)
-        vertices = self._dfPoints[self._pointAttribCols[name]].values
+        vertices = dfPoints[self._pointAttribCols[name]].values
         # Create the vertex array buffer and send the positions into the GPU buffers
         self._VAB[name] = GL.glGenBuffers(1)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._VAB[name] )
         GL.glBufferData(GL.GL_ARRAY_BUFFER, vertices.nbytes, vertices, self.usage)
 
         # Bind Attribute to the current shader. 
-        return self.shader.bind(attribute_name, len(vertices[0]), vertices.dtype)
+        shader_attributes.append(self.shader.bind(attribute_name, len(vertices[0]), vertices.dtype))
 
-    def _copy_to_buffer(self):
+    def _copy_to_buffer(self, dfPoints, dfPrims):
         # Bind the shaders attributes for the current geometry
         if self.shader is None:
             print("ERROR: No shader specified")
@@ -461,21 +457,30 @@ class Geometry:
         GL.glBindVertexArray(self._VAO)
 
         # Create the first attribute "position" (location = 0) (Mandatory)
-        shader_attributes.append(self._create_vertex_buffer_array("P","position"))
-        
+
+        # Get the current vertices (flatten is not needed)
+        vertices = dfPoints[self._pointAttribCols["P"]].values
+        # Create the vertex array buffer and send the positions into the GPU buffers
+        self._VAB["P"] = GL.glGenBuffers(1)
+        GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._VAB["P"] )
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, vertices.nbytes, vertices, self.usage)
+
+        # Bind Attributes to the current shader. 
+        # The first attribute OpenGL search for is for 0 or "position"
+        shader_attributes.append(self.shader.bind("position", len(vertices[0]), vertices.dtype))
+
         # Check wether the geometry has indexes
         if self._has_indices():
             # Get the current indices (flatten)
-            indices = self._dfPrims[self._primAttribCols["Id"]].values
+            indices = dfPrims[self._primAttribCols["Id"]].values
             # Create the element array buffer and send the positions into the GPU buffers
             self._EAB = GL.glGenBuffers(1)
             GL.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER,  self._EAB);
             GL.glBufferData(GL.GL_ELEMENT_ARRAY_BUFFER, indices.nbytes, indices, self.usage);
         
         # Create and bind other Attributes
-        for attrib in self._pointAttribCols.keys():
-            if attrib != "P":
-                shader_attributes.append(self._create_vertex_buffer_array(attrib))
+        for attributes in self._pointAttribCols:
+            
 
         # Unbind VAO from OpenGL. Set to None = 0
         GL.glBindVertexArray(0)
@@ -487,11 +492,11 @@ class Geometry:
 
     def _initialize(self):
         pass
-        
+
     def update(self):
         # Depenging on the method to update the vertices using GPU or 
         # inmediate OpenGL the update will be different.
-        self._copy_to_buffer()
+        self._copy_to_buffer(self._dfpoints, self._dfPrims)
     
     def _createAttribute(self, df, name, size=3, values=None, default=None, dtype=None):
         #Check the data type if any
@@ -557,17 +562,17 @@ class Geometry:
         self.addPrimsAttrib("Id",size,values, dtype=dtype)
    
     def getPointAttrib(self, name):
-        return self._dfPoints[self._pointAttribCols[name]]
+        return self._dfpoints[self._pointAttribCols[name]]
 
     def delPointAttrib(self, name):
-        self._dfPoints.drop(self._pointAttribCols[name], axis=1, inplace=True)
+        self._dfpoints.drop(self._pointAttribCols[name], axis=1, inplace=True)
 
     def addPointAttrib(self, name, size=3, values=None, default=None, dtype=None):
         # Get the new attribute and dataframe
-        result = self._createAttribute(self._dfPoints,name,size,values,default,dtype)
+        result = self._createAttribute(self._dfpoints,name,size,values,default,dtype)
         if not empty(result):
             # Set the returned dataframe with the new attribute
-            self._dfPoints = result[0]
+            self._dfpoints = result[0]
             # Set the columns into the the current Point attribute
             self._pointAttribCols[name] = result[1]
 
@@ -587,7 +592,7 @@ class Geometry:
             GL.glDrawElements(self.mode, len(self._dfPrims.index) * 3, 
                               typeGL(Geometry.index_type), ctypes.c_void_p(0))
         else:
-            GL.glDrawArrays(self.mode, 0, len(self._dfPoints.index))
+            GL.glDrawArrays(self.mode, 0, len(self._dfpoints.index))
         # Unbind VAO from GPU
         GL.glBindVertexArray(0)
   
