@@ -4,6 +4,7 @@ import OpenGL.GL.shaders
 import ctypes
 import pygame
 import os
+from PIL import Image
 import numpy as np
 import pandas as pd
 
@@ -543,7 +544,7 @@ class Geometry:
     def delPrimsAttrib(self, name):
         self._dfPrims.drop(self._primAttribCols[name], axis=1, inplace=True)
 
-    def addPrimsAttrib(self, name, size=3, values=None, default=None, dtype=None):
+    def addPrimsAttrib(self, name, values=None, size=3,  default=None, dtype=None):
         # Get the new attribute and dataframe
         result = self._createAttribute(self._dfPrims,name,size,values,default,dtype)
         if not empty(result):
@@ -554,7 +555,7 @@ class Geometry:
 
     def addIndices(self, values, size=3, dtype=np.uint32):
          #Add prims Attributes Elements
-        self.addPrimsAttrib("Id",size,values, dtype=dtype)
+        self.addPrimsAttrib("Id", values, size, dtype=dtype)
    
     def getPointAttrib(self, name):
         return self._dfPoints[self._pointAttribCols[name]]
@@ -562,7 +563,7 @@ class Geometry:
     def delPointAttrib(self, name):
         self._dfPoints.drop(self._pointAttribCols[name], axis=1, inplace=True)
 
-    def addPointAttrib(self, name, size=3, values=None, default=None, dtype=None):
+    def addPointAttrib(self, name, values=None, size=3,  default=None, dtype=None):
         # Get the new attribute and dataframe
         result = self._createAttribute(self._dfPoints,name,size,values,default,dtype)
         if not empty(result):
@@ -573,11 +574,11 @@ class Geometry:
 
     def addPoints(self, values, size=3, dtype=np.float32):
         #Add point Attributes Position
-        self.addPointAttrib("P",size,values,dtype)
+        self.addPointAttrib("P", values, size, dtype)
 
     def addNormals(self, values, size=3, dtype=np.float32):
           #Add point Attributes Normals
-        self.addPointAttrib("N",size,values,dtype)
+        self.addPointAttrib("N", values, size, dtype)
 
     def render(self):
         # Bind the created Vertex Array Object
@@ -748,14 +749,20 @@ class Shader:
         if self.initialized:
             # Get the location of the 'attribute_name' in parameter of our shader and bind it.
             attribute_id = GL.glGetAttribLocation(self._program, attribute_name)
-            GL.glEnableVertexAttribArray(attribute_id)
-            # Describe the attribute data layout in the buffer
-            GL.glVertexAttribPointer(attribute_id, size, typeGL(dtype),
+            # Check if the current attribute is in the Shader
+            if attribute_id != -1:
+                #Enable current attribute in the shader
+                GL.glEnableVertexAttribArray(attribute_id)
+                # Describe the attribute data layout in the buffer
+                GL.glVertexAttribPointer(attribute_id, size, typeGL(dtype),
                                     False, 0, ctypes.c_void_p(0))
-            # Return the attribute id
-            return attribute_id
+                # Return the attribute id
+                return attribute_id
+            else:
+                # Attribute has been discarted for the compiler or doesn't exist.
+                print ("Warning: Current attribute {} is not ins the shader".format(attribute_name))
         # Return false is not initialized
-        return false
+        return False
 
     def unbind(self, attribute_id):
         """
@@ -770,21 +777,123 @@ class Shader:
     def update(self):
         pass
 
+def load_image(filename, bpp=8):
+    # Load the image using the path configured
+    image = Image.open(filename).transpose(Image.FLIP_TOP_BOTTOM)
+    if (bpp == 32):
+        dtype = np.uint32
+    elif (bpp == 16):
+        dtype = np.uint16
+    else:
+        dtype = np.uint8
+    # Convert the image to a numpy string. Converto to uint8 image.
+    image_data = np.fromstring(image.tobytes(), dtype)
+    return [image_data, image.size]
+
+class Texture:
+    """
+        This class will create and store all the elements needed
+        to create the texture.
+        The module needed to load the images is Pillow
+            from PIL import Image
+    """
+    # Maximun number of textures
+    max_textures = 32
+
+    def __init__(self, filename):
+        # Initialize all the variables
+        self.filename = filename
+        # Create a texture variable with the pointer to the buffer
+        self._texture = None
+        # Initiali<e variables and Window
+        self._initialize()
+
+    def __enter__(self):
+        # Enter will always return the object itself. Use with With expressons
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # Clean all the memery stored
+        self._dispose()
+
+    def _dispose(self):
+        pass
+
+    def _initialize(self):
+        # Create the texture and copy into OpenGL
+        self._texture = self._load_Texture(self.filename)
+
+    def _load_Texture(self,filename):
+        # Check if the file exists
+        if isfile(filename):
+            # Load the image using the path configured
+            img_data, size = load_image(filename)
+            width, height = size
+            # Generate texture buffer to load into GPU
+            texture = GL.glGenTextures(1)
+            # Set initial parameters needed prior send the image to OpenGL
+            GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
+            # Bind current texture buffer to load the data
+            GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
+            # Set parameters to tell OpenGL how to draw the image
+            GL.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR)
+            GL.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
+            GL.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, width, height, 0,
+                            GL.GL_RGBA, typeGL(img_data.dtype), img_data)
+            # Create different Mipmaps for the current texure
+            GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
+            return texture
+        # If not exist return None
+        return None
+    
+    def bind(self, count):
+        """
+            This method will bind the current texture to be used to the graphic card
+            Parameter:
+                count: this is used to assign a free slot to the texture into OpenGL
+                    [   Some graphic cards could have a limitation in the number of   ]
+                    [   textures that can store, depending on the memory.             ]
+        """
+        if self._texture and (count > 0 and count < Texture.max_textures + 1 ):
+            # Following we will activate the texture in a slot 
+            GL.glActiveTexture(GL.GL_TEXTURE0 + count)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, self._texture)
+
+def Triangle():
+     #Create default vertices 4f
+    vertices = [ -0.5, -0.5, 0.0, 1.0,
+                  0.0,  0.5, 0.0, 1.0,
+                  0.5, -0.5, 0.0, 1.0]
+    indices = [ 0, 1, 2 ]
+    color = [ 1.0, 0.0, 0.0, 1.0,
+              0.0, 1.0, 0.0, 1.0,
+              0.0, 0.0, 1.0, 1.0]
+    uvs = [0.0, 0.0,
+           0.5, 1.0,
+           1.0, 0.0 ]
+    return [vertices, indices, color, uvs]
+
 # Testing pourposes main function
 if __name__ == "__main__":
     # Create the Display with the main window
     with  Display("Main Window",800,600) as display:
-        #Create default vertices 4f
-        vertices = [ 0.6,  0.6, 0.0, 1.0,
-                    -0.6,  0.6, 0.0, 1.0,
-                     0.0, -0.6, 0.0, 1.0]
-        cube = cube3D()
+       
+        #georaw = cube3D()
+        georaw = Triangle()
+        
+        #text = Texture("./shaders/texture.png")
+
         # Create the default shader
         shader = Shader("default_shader", "./shaders")
         # Create the geometry
         geo = Geometry("geo",shader)
-        geo.addPoints(cube[0], 4)
-        geo.addIndices(cube[1])
+        #geo.addPoints(georaw[0], 4)
+        geo.addPointAttrib("P",georaw[0], 4)
+        geo.addIndices(georaw[1])
+        geo.addPointAttrib("Cd",georaw[2], 4)
+        geo.addPointAttrib("UV",georaw[3], 2)
         #geo.addPoints(vertices, 4)
         geo.update()
          # Start the Main loop for the program

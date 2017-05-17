@@ -1,6 +1,9 @@
 #version 330
 
+in vec4 oCd;
+in vec2 oUV;
+
 void main()
 {
-   gl_FragColor = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+   gl_FragColor = oCd;
 }
