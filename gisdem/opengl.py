@@ -1063,7 +1063,7 @@ class Camera:
     def __init__(self, position=[0.0,0.0,-3.0], fov=70.0, aspect=1.33, zNear=0.01, zFar=1000.0):
         # Create private members for the setters (properties)
         # View Matrix
-        self.__position = convert(position)
+        self.__position = Vector3(convert(position))
         self._forward = convert([0.0,0.0,1.0])
         self._up = convert([0.0,1.0,0.0])
         # Prejection Matrix
@@ -1102,7 +1102,7 @@ class Camera:
 
     @position.setter
     def position(self, value):
-        self.__position = convert(value)
+        self.__position = Vector3(convert(value))
 
     def setPerspective(fov=70.0, aspect=1.33, zNear=0.01, zFar=1000.0):
         """
@@ -1141,9 +1141,9 @@ class Camera:
         rmat[2][2] = ez[2]
 
         tmat = np.eye(4)
-        tmat[0][3] = -_eye[0]
-        tmat[1][3] = -_eye[1]
-        tmat[2][3] = -_eye[2]
+        tmat[0][3] = -position[0]
+        tmat[1][3] = -position[1]
+        tmat[2][3] = -position[2]
 
         return np.dot(rmat, tmat).transpose()
 
@@ -1211,6 +1211,14 @@ if __name__ == "__main__":
                     display.close()
                 if event.type == pygame.KEYUP and event.key == pygame.K_ESCAPE:
                     display.close()
+                if event.type == pygame.KEYUP and event.key == pygame.K_UP:
+                    camera.position.y += 0.1
+                if event.type == pygame.KEYUP and event.key == pygame.K_DOWN:
+                    camera.position.y -= 0.1
+                if event.type == pygame.KEYUP and event.key == pygame.K_RIGHT:
+                    camera.position.x += 0.1
+                if event.type == pygame.KEYUP and event.key == pygame.K_LEFT:
+                    camera.position.x -= 0.1
                         
             # Clear the display
             display.clear()
