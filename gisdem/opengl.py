@@ -1,17 +1,24 @@
-
-import OpenGL.GL as GL
-import OpenGL.GL.shaders
-import ctypes
-import pygame
 import os
-from PIL import Image
+import ctypes
 import numpy as np
 import pandas as pd
+import OpenGL.GL as GL
+import OpenGL.GL.shaders
+import pygame
+from PIL import Image
+from pyrr import Quaternion, Matrix44, Vector3
 
+
+# https://github.com/adamlwgriffiths/Pyrr/tree/master/pyrr
 
 # Great useful resource to learn OpenGL and all the concepts needed for understanding
 # ligths, materials, shaders, transformations, etc..
 # URL: https://learnopengl.com/, https://open.gl/drawing
+# https://codereview.stackexchange.com/questions/92769/managing-shaders-in-opengl-a-shader-class
+# https://www.packtpub.com/books/content/tips-and-tricks-getting-started-opengl-and-glsl-40
+# http://dominium.maksw.com/articles/physically-based-rendering-pbr/pbr-part-one/   
+# http://www.opengl-tutorial.org/beginners-tutorials/tutorial-8-basic-shading/
+# https://www.tomdalling.com/blog/modern-opengl/08-even-more-lighting-directional-lights-spotlights-multiple-lights/
 
 """
 
@@ -544,7 +551,7 @@ class Geometry:
     def delPrimsAttrib(self, name):
         self._dfPrims.drop(self._primAttribCols[name], axis=1, inplace=True)
 
-    def addPrimsAttrib(self, name, values=None, size=3,  default=None, dtype=None):
+    def addPrimsAttrib(self, name, values=None, size=3, default=None, dtype=None):
         # Get the new attribute and dataframe
         result = self._createAttribute(self._dfPrims,name,size,values,default,dtype)
         if not empty(result):
@@ -593,10 +600,25 @@ class Geometry:
         GL.glBindVertexArray(0)
   
 # Shader typas allow and extension for the files to use
-ShaderType = {
+ShaderTypes = {
     "VERTEX_SHADER"     : { "id":"vs", "type":GL.GL_VERTEX_SHADER   }, 
     "FRAGMENT_SHADER"   : { "id":"fs", "type":GL.GL_FRAGMENT_SHADER },
     "GEOMETRY_SHADER"   : { "id":"gs", "type":GL.GL_GEOMETRY_SHADER }
+    }
+
+# Transforms types availabile in shader
+TransformTypes = {
+    "WORLD_MATRIX"        : { name:"world_matrix",      size:16, dtype:np.float32 }, 
+    "VIEW_MATRIX"         : { name:"view_matrix",       size:16, dtype:np.float32 },    
+    "PROJECTION_MATRIX"   : { name:"projection_matrix", size:16, dtype:np.float32 }
+    }
+
+# Transforms types availabile in shader
+GeometryAttributeTypes = {
+    "TEXTURE_COORDINATES"   : { name:"v_textcoord", size:2, dtype:np.float32 },       
+    "NORMAL"                : { name:"v_normal",    size:3, dtype:np.float32 },      
+    "POSITION"              : { name:"v_pos",       size:3, dtype:np.float32 },     
+    "COLOR"                 : { name:"v_color",     size:4, dtype:np.float32 }
     }
 
 class Shader:
@@ -604,6 +626,12 @@ class Shader:
         This element will create and store all the elements needed
         to create a shader.
     """
+
+    # Shaders types
+    shader_types = ShaderTypes
+
+    # These are the default transforms that will be used
+    uniform_transforms = TransformTypes
     
     def __init__(self, name=None, filepath="./"):
         # Initialize all the variables
@@ -643,14 +671,52 @@ class Shader:
         # Create the variables needed for the shader program
         self._shaders = {}
         self._uniforms = {}
+
         # Set initialized to false
         self.initialized = False
+
         # Create the main shader program
         self._program = GL.glCreateProgram()
+        
+        # Arrach the default shaders to the current program
+        self._attach_default_shaders()
+
+        # Bind and mapping the default attributes variables to the shader
+        #   - Bind location must be done before the linking process.
+        #   - Get  location must be done after the linking process.
+        self._bind_location_attributes()
+
+        # Link the current shader program
+        GL.glLinkProgram(self._program)
+        # Check for link errors                
+        if self._check_shader_error(self._program, GL.GL_LINK_STATUS,True):    
+            return
+        
+        # Validate Program
+        GL.glValidateProgram(self._program)
+         # Check for link errors                
+        if self._check_shader_error(self._program, GL.GL_VALIDATE_STATUS,True):
+            return
+                        
+        # Get location uniforms variablesfrom the shader
+        self._get_location_uniforms()
+
+        # if all ok then set initialized to true
+        self.initialized = True
+
+    def _get_location_uniforms(self):
+        for key,value in Shader.uniform_transforms.items():
+            # Get the location for the curren shader loaded
+            self._uniforms[key] = GL.glGetUniformLocation(self._program, value.name)
+
+    def _bind_location_attributes(self):
+        pass
+
+    def _attach_default_shaders(self):
         # Generate the main path for the shaders to load
         filename = self.filepath + "/" + self.name + "."
         # Read all shader type files and link into the progrma
-        for key,value in ShaderType.items():
+        for key,value in Shader.shader_types.items():
             shader = self._load_shader(filename + value["id"], value["type"])
             # Check the current shader has been loaded correctly
             if shader:
@@ -658,18 +724,6 @@ class Shader:
                 GL.glAttachShader(self._program, shader)
                 # Add current shader
                 self._shaders[key] = shader
-        # Link the current shader program
-        GL.glLinkProgram(self._program)
-        # Check for link errors                
-        if self._check_shader_error(self._program, GL.GL_LINK_STATUS,True):    
-            return
-        # Validate Program
-        GL.glValidateProgram(self._program)
-         # Check for link errors                
-        if self._check_shader_error(self._program, GL.GL_VALIDATE_STATUS,True):
-            return
-        # if all ok then set initialized to true
-        self.initialized = True
 
     def _load_shader(self, filename, shader_type):
         # Check if the file exists
@@ -760,7 +814,7 @@ class Shader:
                 return attribute_id
             else:
                 # Attribute has been discarted for the compiler or doesn't exist.
-                print ("Warning: Current attribute {} is not ins the shader".format(attribute_name))
+                print ("Warning: Current attribute {} is not in the shader".format(attribute_name))
         # Return false is not initialized
         return False
 
@@ -774,11 +828,12 @@ class Shader:
             # Unbind Attribute
             GL.glDisableVertexAttribArray(attribute_id)
         
-    def update(self):
-        pass
+    def update(self, name, value):
+        # Depending on the uniform name to update we have to select the proper operator.
+        GL.glUniformMatrix4fv(self._uniforms[name], 1, GL.GL_FALSE, value)
 
 def load_image(filename, bpp=8):
-    # Load the image using the path configured
+    #Load the image using the path configured
     image = Image.open(filename).transpose(Image.FLIP_TOP_BOTTOM)
     if (bpp == 32):
         dtype = np.uint32
@@ -787,7 +842,7 @@ def load_image(filename, bpp=8):
     else:
         dtype = np.uint8
     # Convert the image to a numpy string. Converto to uint8 image.
-    image_data = np.fromstring(image.tobytes(), dtype)
+    image_data = np.array(image.getdata(), dtype)
     return [image_data, image.size]
 
 class Texture:
@@ -840,8 +895,8 @@ class Texture:
             GL.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR)
             GL.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
             GL.glTexParameterf(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
-            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, width, height, 0,
-                            GL.GL_RGBA, typeGL(img_data.dtype), img_data)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGB, width, height, 0,
+                            GL.GL_RGB, typeGL(img_data.dtype), img_data)
             # Create different Mipmaps for the current texure
             GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
             return texture
@@ -860,6 +915,123 @@ class Texture:
             # Following we will activate the texture in a slot 
             GL.glActiveTexture(GL.GL_TEXTURE0 + count)
             GL.glBindTexture(GL.GL_TEXTURE_2D, self._texture)
+
+class Transform:
+    """
+        This class will manage the basic transformation that can be
+        performed to a geometry.
+
+        This class uses pyrr module that it's a packadge with many
+        operations that can be used directly with OpenGL. In this class
+        the selected approach will be Object Oriented because its features.
+        Documentation can be founf in the following link:
+        
+        https://github.com/adamlwgriffiths/Pyrr
+
+        Parameters:
+            default position, rotation and scale can be set intially.
+        
+        To-Do:
+            Pivot implementation. So it's rotate based on a point.
+            Advanced transformations such as shear, bend, twist, et..
+
+    """
+    def __init__(self, position=None, rotation=None, scale=None):
+        # Create private members for the setters (properties)
+        self.__position = self._get_Vector3(position)
+        self.__rotation = self._get_Vector3(rotation)
+        self.__scale = self._get_Vector3(scale)
+        # Initiali<e variables and Window
+        self._initialize()
+
+    def _get_Vector3(self, value):
+        if empty(value):
+            return None
+        # Check if it's already a Vector3 instance
+        if isinstance(value,(Vector3)):
+            return value
+        else:
+            return Vector3(value)
+
+    def _initialize(self):
+         # Create default transformations: position, rotation and scale
+        if self.position is None:
+            self.position = Vector3([0.0,0.0,0.0])
+        if self.rotation is None:
+            self.rotation = Vector3([0.0,0.0,0.0])
+        if self.scale is None:
+            self.scale = Vector3([1.0,1.0,1.0])
+
+    @property
+    def position(self):
+        return self.__position
+
+    @position.setter
+    def position(self, value):
+        self.__position = self._get_Vector3(value)
+
+    @property
+    def rotation(self):
+        return self.__rotation
+
+    @rotation.setter
+    def rotation(self, value):
+        self.__rotation = self._get_Vector3(value)
+
+    @property
+    def scale(self):
+        return self.__scale
+
+    @scale.setter
+    def scale(self, value):
+        self.__scale = self._get_Vector3(value)
+
+    @property
+    def model(self):
+        """
+            This property will perform the current transformation and
+            return a 4x4 matrix with the  transformation matrix. This
+            matrix could be send to the shader so it can perform the
+            model-view transformation for any geometry
+        """
+        # Create scale matrix transformation
+        scale = Matrix44.from_scale(self.scale)
+
+        #Convert the current degrees vector into radians
+        rotation = np.radians(self.rotation)
+        rotationY = Quaternion.from_x_rotation(rotation.x)
+        rotationX = Quaternion.from_y_rotation(rotation.y)
+        rotationZ = Quaternion.from_z_rotation(rotation.z)
+        # compute all rotations.
+        rotation = rotationX * rotationY * rotationZ
+
+        # Create translation matrix transformation
+        translation = Matrix44.from_translation(self.position)
+
+        # Compute transformation matrix
+        return scale * rotation * translation
+
+    def transform(self, point):
+        """
+            This function will apply the current transformation to
+            the following point. 
+        """
+        # Get the current tranformation matrix
+        matrix = self.model
+        # transform our point by the matrix to model-view
+        return matrix * self._get_Vector3(point)
+
+    def __enter__(self):
+        # Enter will always return the object itself. Use with With expressons
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # Clean all the memery stored
+        self._dispose()
+
+    def _dispose(self):
+        pass
+
 
 def Triangle():
      #Create default vertices 4f
@@ -883,15 +1055,15 @@ if __name__ == "__main__":
         #georaw = cube3D()
         georaw = Triangle()
         
-        #text = Texture("./shaders/texture.png")
-
+        # Create a texture
+        texture = Texture("./shaders/texture.png")
         # Create the default shader
         shader = Shader("default_shader", "./shaders")
         # Create the geometry
-        geo = Geometry("geo",shader)
+        geo = Geometry("geo",shader,mode=DrawMode.triangles)
         #geo.addPoints(georaw[0], 4)
         geo.addPointAttrib("P",georaw[0], 4)
-        geo.addIndices(georaw[1])
+        #geo.addIndices(georaw[1])
         geo.addPointAttrib("Cd",georaw[2], 4)
         geo.addPointAttrib("UV",georaw[3], 2)
         #geo.addPoints(vertices, 4)
@@ -911,6 +1083,8 @@ if __name__ == "__main__":
             # Render all the elements that share the same shader.
             # Use the current Shader configuration
             shader.use()
+            # Use the current texture after the shader
+            texture.bind(0)
             # Render the  geometry
             geo.render()
             # End Use the current Shader configuration
